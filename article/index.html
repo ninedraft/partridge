@@ -1,0 +1,265 @@
+<meta charset="UTF-8">
+<h1>Введение в анализ данных с помощью Go</h1>
+
+<p>Статья носит познавательно-развлекательный характер, код лучше не использовать в проде. Я решил её написать, во-первых, потому что так и не нашёл аналогичных русскоязычных материалов, а во-вторых &ndash; потому что мне нравится Go и аналитика. Такие дела.</p>
+
+<p>Что подразумевается под анализом данных в этой статье? Прежде всего поиск закономерностей и соотношений в числовых наборах данных.
+Например, нахождение зависимости между временем публикации поста в блоге и числом просмотров. Или процент нецензурных слов в твите и количество его ретвитов.</p>
+
+<h2>Базовые компоненты</h2>
+
+<p>Основные сущности, с которыми мы будем работать &ndash; это вектор и матрица. Для Go существуют несколько быстрых библиотек линейной алгебры (TODO: вставить примеры). Мы же будем изобретать свой велосипед из педагогических соображений.</p>
+
+<blockquote>
+<p>Вектор &ndash; это упорядоченный набор чисел. Основными операциями над вектором являются сложение с другим вектором, умножение на вектор и на число, вычисление нормы.</p>
+</blockquote>
+
+<p>Определим кастомынй тип вектора. Такой подход с созданием типа-псевдонима позволит нам использовать цепочки вызовов методов вместо глубоко вложенных вызовов функций.</p>
+
+<pre><code class="language-go">type Vector []float64
+</code></pre>
+
+<p>Для начал напишем базовые утилиты, они сильно упростят нам жизнь в будущем MakeVec, Len, New и Copy:</p>
+
+<p>TODO: добавить спойлер</p>
+
+<pre><code class="language-go">
+// Удобная функция для конструирования векторов из других коллекций
+func MakeVec(len int, source func(i int) float64) Vector {
+	var vector = make(Vector, 0, len)
+	for i := 0; i &lt; len; i++ {
+		vector = append(vector, source(i))
+	}
+	return vector
+}
+
+// Опять же, дело вкуса, но мне удобнее использовать вызов метода чем функциию
+func (vector Vector) Len() int {
+	return len(vector)
+}
+
+// Фабрика, возвращающая преаллоцированный вектор с ёмкостью равной длине оригинального вектора.
+// TODO: добавить ссылку на страницу документации по слайсам
+func (vector Vector) New() Vector {
+	return make(Vector, 0, len(vector))
+}
+
+// Копирование вектора, очевидно
+func (vector Vector) Copy() Vector {
+	return append(vector.New(), vector...)
+}
+
+// Применение функции на весь вектор
+func (vector Vector) Map(op func(x float64) float64) Vector {
+	var result = vector.New()
+	for _, x := range vector {
+		result = append(result, op(x))
+	}
+	return result
+}
+</code></pre>
+
+<p>Фух, теперь займёмся непосредственно математикой. Замечу, что сейчас дальше будет реализация операций не самым эффективным, но довольно наглядным способом:</p>
+
+<p>TODO: добавить спойлер</p>
+
+<p>Сложение двух векторов</p>
+
+<pre><code class="language-go">func (vector Vector) AddVector(xx Vector) Vector {
+	if vector.Len() != xx.Len() {
+		panic(&quot;[Vector.AddVector] expects vectors with equal lengths&quot;)
+	}
+	var result = vector.Copy()
+	for i, x := range xx {
+		result[i] += x
+	}
+	return result
+}
+</code></pre>
+
+<p>Пребавить число к каждому элементу вектора</p>
+
+<pre><code class="language-go">func (vector Vector) AddScalar(k float64) Vector {
+	var result = vector.Copy()
+	for i := range vector {
+		result[i] += k
+	}
+	return result
+}
+</code></pre>
+
+<p>Поэлементное умножение двух векторов</p>
+
+<pre><code class="language-go">func (vector Vector) MulVector(xx Vector) Vector {
+	if vector.Len() != xx.Len() {
+		panic(&quot;[Vector.MulVector] expects vectors with equal lengths&quot;)
+	}
+	var result = vector.Copy()
+	for i, x := range xx {
+		result[i] *= x
+	}
+	return result
+}
+</code></pre>
+
+<p>Поэлементное умножение вектора на число</p>
+
+<pre><code class="language-go">func (vector Vector) MulScalar(k float64) Vector {
+	var result = vector.Copy()
+	for i := range vector {
+		result[i] *= k
+	}
+	return result
+}
+</code></pre>
+
+<p>Скалярное произведение двух векторов</p>
+
+<pre><code class="language-go">func (vector Vector) MulDot(another Vector) float64 {
+	if vector.Len() != another.Len() {
+		panic(&quot;[Vector.MulDot] expect vectors with equal lengths&quot;)
+	}
+	var result float64
+	for i, x := range another {
+		result += vector[i] * x
+	}
+	return result
+}
+</code></pre>
+
+<p>Нхождение суммы всех элементов вектора</p>
+
+<pre><code class="language-go">func (vector Vector) Sum() float64 {
+	var accum float64
+	for _, x := range vector {
+		accum += x
+	}
+	return accum
+}
+</code></pre>
+
+<p>Теперь когда у нас есть минимальный набор инструментов векторной алгебры, можно
+перейти непосредственно с анализу данных.</p>
+
+<p>Самый простой способ как-то описать набор чисел &ndash; это посчитать их среднее.
+Среднее &ndash; это сумма элементов вектора, делённая на их количество.
+Реализовать этот метод просто:</p>
+
+<pre><code class="language-go">func (vector Vector) Mean() float64 {
+    	return vector.Sum() / float64(vector.Len())
+}
+</code></pre>
+
+<p>Возьмём какой-нибудь набор данных, например &ndash; рейтинги топ10 пользователей Хабра
+(07.08.2018).</p>
+
+<table>
+<thead>
+<tr>
+<th>Пользователь</th>
+<th>Рейтинг</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>phillennium</td>
+<td>1058.6</td>
+</tr>
+
+<tr>
+<td>olegchir</td>
+<td>733.0</td>
+</tr>
+
+<tr>
+<td>ragequit</td>
+<td>710.7</td>
+</tr>
+
+<tr>
+<td>mi5ha6in</td>
+<td>689.9</td>
+</tr>
+
+<tr>
+<td>Milfgard</td>
+<td>629.2</td>
+</tr>
+
+<tr>
+<td>HotWaterMusic</td>
+<td>620.9</td>
+</tr>
+
+<tr>
+<td>Jeditobe</td>
+<td>546.9</td>
+</tr>
+
+<tr>
+<td>it_man</td>
+<td>524.3</td>
+</tr>
+
+<tr>
+<td>AloneCoder</td>
+<td>500.9</td>
+</tr>
+
+<tr>
+<td>MagisterLudi</td>
+<td>495.4</td>
+</tr>
+</tbody>
+</table>
+
+<pre><code class="language-go">	var raitings = Vector{
+		1058.6,
+		733.0,
+		710.7,
+		689.9,
+		629.2,
+		620.9,
+		546.9,
+		524.3,
+		500.9,
+		495.4,
+	}
+	fmt.Println(raitings.Mean())
+	// -&gt; 650.9799999999999
+</code></pre>
+
+<p>Похоже на правду :3</p>
+
+<p><img src="../examples/mean/ratings.png" alt="mean_ratings" /></p>
+
+<p>Среднее неплохо описывает наборы значений, элементы которых мало отличаются друг
+от друга. Любой сильный выборс может сильно исказить повлиять на значение среднего.</p>
+
+<p>Смоделируем ситуацию, при которой один из пользователей накрутил рейтинг.
+В качестве такого значения возьмём 2000. Посчитаем новое значение среднего:</p>
+
+<pre><code class="language-go">var raitings = Vector{
+		5000,
+		733.0,
+		710.7,
+		689.9,
+		629.2,
+		620.9,
+		546.9,
+		524.3,
+		500.9,
+		495.4,
+	}
+	var mean = raitings.Mean()
+	fmt.Println(raitings.Mean())
+	// -&gt; 745.1
+</code></pre>
+
+<p><img src="../examples/mean/ratings_outburst.png" alt="ratings_outburst" /></p>
+
+<p>Видно, что полученное значение плохо характеризует весь набор данных:<br />
+большая все значения от него сильно отклоняются,
+причём направления отклонения распределены сильно несимметрично.
+Как в поговорке: ты ешь мясо, я ем капусту, а в среднем мы едим голубцы.</p>
