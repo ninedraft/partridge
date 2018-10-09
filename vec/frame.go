@@ -3,7 +3,8 @@ package vec
 import (
 	"bytes"
 	"fmt"
-	sof "misc/partridge/stringOrFloat"
+
+	sof "github.com/ninedraft/partridge/stringOrFloat"
 )
 
 type Frame struct {
